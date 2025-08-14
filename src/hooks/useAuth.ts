@@ -1,200 +1,98 @@
-import { useState, useEffect } from 'react';
-import { User as SupabaseUser } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
-import { User } from '../types';
+import { useState, useEffect, useContext, createContext } from "react";
+import { supabase } from "../supabaseClient";
+
+const AuthContext = createContext();
+
+export function AuthProvider({ children }) {
+  const auth = useProvideAuth();
+  return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
+}
 
 export const useAuth = () => {
-  const [user, setUser] = useState<User | null>(null);
+  return useContext(AuthContext);
+};
+
+function useProvideAuth() {
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        fetchUserProfile(session.user.id);
-      } else {
-        setLoading(false);
-      }
+    const session = supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user || null);
+      setLoading(false);
     });
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        await fetchUserProfile(session.user.id);
-      } else {
-        setUser(null);
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        setUser(session?.user || null);
         setLoading(false);
       }
-    });
+    );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
-  const fetchUserProfile = async (userId: string) => {
+  const signUp = async (email, password, fullName) => {
+    setLoading(true);
     try {
-      console.log('Fetching user profile for:', userId);
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: fullName } },
+      });
 
-      if (error) {
-        console.error('Error fetching user profile:', error);
-        // Si la table n'existe pas encore, créer un profil temporaire
-        if (error.code === 'PGRST106' || error.message.includes('relation "users" does not exist')) {
-          console.log('Users table does not exist, creating temporary profile');
-          await createTemporaryProfile(userId);
-          return;
-        }
-        throw error;
-      }
+      if (error) throw error;
 
-      if (data) {
-        console.log('User profile found:', data);
-        setUser({
-          id: data.id,
-          name: data.name,
-          email: data.email,
-          phone: data.phone,
-          role: data.role,
-          avatar: data.avatar,
-          location: data.location,
-          verified: data.verified,
-          createdAt: new Date(data.created_at)
-        });
-      } else {
-        // Si aucun profil n'existe, créer un profil par défaut
-        console.log('No user profile found, creating default profile');
-        await createDefaultProfile(userId);
-      }
+      // Insérer automatiquement dans la table users
+      await supabase.from("users").insert([
+        {
+          id: data.user.id,
+          full_name: fullName,
+          email: data.user.email,
+        },
+      ]);
+
+      setUser(data.user);
+      return { user: data.user };
     } catch (error) {
-      console.error('Error fetching user profile:', error);
-      setUser(null);
+      console.error("Erreur inscription :", error.message);
+      return { error };
     } finally {
       setLoading(false);
     }
   };
 
-  const createTemporaryProfile = async (userId: string) => {
+  const signIn = async (email, password) => {
+    setLoading(true);
     try {
-      // Récupérer les informations de l'utilisateur authentifié
-      const { data: authUser } = await supabase.auth.getUser();
-      
-      if (!authUser.user) {
-        setUser(null);
-        return;
-      }
-
-      // Créer un profil temporaire en mémoire (sans base de données)
-      const tempUser: User = {
-        id: userId,
-        name: authUser.user.user_metadata?.name || authUser.user.email?.split('@')[0] || 'Utilisateur',
-        email: authUser.user.email || '',
-        phone: authUser.user.user_metadata?.phone || '',
-        role: 'client',
-        location: 'Conakry',
-        verified: false,
-        createdAt: new Date()
-      };
-
-      setUser(tempUser);
-    } catch (error) {
-      console.error('Error creating temporary profile:', error);
-      setUser(null);
-    }
-  };
-
-  const createDefaultProfile = async (userId: string) => {
-    try {
-      // Récupérer les informations de l'utilisateur authentifié
-      const { data: authUser } = await supabase.auth.getUser();
-      
-      if (!authUser.user) {
-        setUser(null);
-        return;
-      }
-
-      // Créer un profil par défaut
-      console.log('Creating default profile for user:', userId);
-      const { data, error } = await supabase
-        .from('users')
-        .insert({
-          id: userId,
-          name: authUser.user.user_metadata?.name || 'Utilisateur',
-          email: authUser.user.email || '',
-          phone: authUser.user.user_metadata?.phone || '',
-          role: authUser.user.user_metadata?.role || 'client',
-          location: authUser.user.user_metadata?.location || 'Conakry',
-          verified: false
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error creating user profile:', error);
-        // Si on ne peut pas créer le profil en base, utiliser un profil temporaire
-        if (error.code === 'PGRST106' || error.message.includes('relation "users" does not exist')) {
-          console.log('Cannot create profile in database, using temporary profile');
-          await createTemporaryProfile(userId);
-          return;
-        }
-        console.error('Error creating user profile:', error);
-        setUser(null);
-        return;
-      }
-
-      // Définir l'utilisateur avec le nouveau profil
-      console.log('Default profile created successfully:', data);
-      setUser({
-        id: data.id,
-        name: data.name,
-        email: data.email,
-        phone: data.phone,
-        role: data.role,
-        avatar: data.avatar,
-        location: data.location,
-        verified: data.verified,
-        createdAt: new Date(data.created_at)
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       });
+      if (error) throw error;
+      setUser(data.user);
+      return { user: data.user };
     } catch (error) {
-      console.error('Error creating default profile:', error);
-      setUser(null);
+      console.error("Erreur connexion :", error.message);
+      return { error };
+    } finally {
+      setLoading(false);
     }
-  };
-
-  const signUp = async (email: string, password: string, userData: {
-    name: string;
-    phone: string;
-    location: string;
-    role?: 'client' | 'vendor';
-  }) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: userData
-      }
-    });
-
-    return { data, error };
-  };
-
-  const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
-
-    return { data, error };
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (!error) {
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
       setUser(null);
+    } catch (error) {
+      console.error("Erreur déconnexion :", error.message);
+    } finally {
+      setLoading(false);
     }
-    return { error };
   };
 
   return {
@@ -202,6 +100,6 @@ export const useAuth = () => {
     loading,
     signUp,
     signIn,
-    signOut
+    signOut,
   };
-};
+}
