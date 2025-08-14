@@ -1,117 +1,175 @@
-import { useState, useEffect, useContext, createContext } from "react";
-import { supabase } from "../supabaseClient";
-import { ReactNode } from "react";
-import { AuthContext } from "../context/AuthContext";
-import { useProvideAuth } from "./useProvideAuth";
+import React, { createContext, useContext, useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
+import { User } from "../types";
 
-interface Props {
-  children: ReactNode;
+interface AuthContextType {
+  user: User | null;
+  loading: boolean;
+  signIn: (email: string, password: string) => Promise<{ error: any }>;
+  signUp: (
+    email: string,
+    password: string,
+    userData: Partial<User>
+  ) => Promise<{ error: any }>;
+  signOut: () => Promise<void>;
 }
 
-export function AuthProvider({ children }: Props) {
-  const auth = useProvideAuth();
-  return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
+// Création du contexte avec le bon type
+const AuthContext = createContext<AuthContextType | null>(null);
+
+// Hook personnalisé pour utiliser le contexte
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
 }
 
-const AuthContext = createContext();
-
-export function AuthProvider({ children }) {
-  const auth = useProvideAuth();
-  return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
-}
-
-export const useAuth = () => {
-  return useContext(AuthContext);
-};
-
+// Hook interne pour gérer la logique d'authentification
 function useProvideAuth() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const session = supabase.auth.getSession().then(({ data }) => {
-      setUser(data.session?.user || null);
+    // Vérifier la session actuelle
+    const checkUser = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.user) {
+          await loadUserProfile(session.user.id);
+        }
+      } catch (error) {
+        console.error("Error checking session:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkUser();
+
+    // Écouter les changements d'authentification
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        await loadUserProfile(session.user.id);
+      } else {
+        setUser(null);
+      }
       setLoading(false);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        setUser(session?.user || null);
-        setLoading(false);
-      }
-    );
-
-    return () => {
-      listener.subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
-  const signUp = async (email, password, fullName) => {
-    setLoading(true);
+  const loadUserProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", userId)
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        const userProfile: User = {
+          id: data.id,
+          name: data.name,
+          email: data.email,
+          phone: data.phone,
+          role: data.role,
+          avatar: data.avatar,
+          location: data.location,
+          verified: data.verified,
+          createdAt: new Date(data.created_at),
+        };
+        setUser(userProfile);
+      }
+    } catch (error) {
+      console.error("Error loading user profile:", error);
+      setUser(null);
+    }
+  };
+
+  const signIn = async (email: string, password: string) => {
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      return { error };
+    } catch (error) {
+      return { error };
+    }
+  };
+
+  const signUp = async (
+    email: string,
+    password: string,
+    userData: Partial<User>
+  ) => {
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: fullName } },
-      });
-
-      if (error) throw error;
-
-      // Insérer automatiquement dans la table users
-      await supabase.from("users").insert([
-        {
-          id: data.user.id,
-          full_name: fullName,
-          email: data.user.email,
+        options: {
+          data: {
+            name: userData.name,
+            phone: userData.phone,
+            location: userData.location,
+            role: userData.role,
+          },
         },
-      ]);
-
-      setUser(data.user);
-      return { user: data.user };
-    } catch (error) {
-      console.error("Erreur inscription :", error.message);
-      return { error };
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const signIn = async (email, password) => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
       });
-      if (error) throw error;
-      setUser(data.user);
-      return { user: data.user };
-    } catch (error) {
-      console.error("Erreur connexion :", error.message);
+
+      if (!error && data.user) {
+        // Créer le profil utilisateur
+        const { error: profileError } = await supabase.from("users").insert({
+          id: data.user.id,
+          name: userData.name,
+          email: userData.email,
+          phone: userData.phone,
+          location: userData.location,
+          role: userData.role || "client",
+          verified: false,
+        });
+
+        if (profileError) {
+          console.error("Error creating user profile:", profileError);
+        }
+      }
+
       return { error };
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      return { error };
     }
   };
 
   const signOut = async () => {
-    setLoading(true);
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      await supabase.auth.signOut();
       setUser(null);
     } catch (error) {
-      console.error("Erreur déconnexion :", error.message);
-    } finally {
-      setLoading(false);
+      console.error("Error signing out:", error);
     }
   };
 
   return {
     user,
     loading,
-    signUp,
     signIn,
+    signUp,
     signOut,
   };
+}
+
+// Fournisseur de contexte
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const auth = useProvideAuth();
+
+  return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
 }

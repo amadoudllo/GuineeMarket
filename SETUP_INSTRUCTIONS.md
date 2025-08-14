@@ -1,59 +1,64 @@
-# 🚀 Instructions de configuration de la base de données Supabase
+# Instructions de Configuration - GuinéeMarket
 
-## Étapes pour créer toutes les tables :
+## 🚀 Configuration Rapide
 
-### 1. **Accédez à votre dashboard Supabase**
-- Allez sur https://supabase.com/dashboard
-- Sélectionnez votre projet
+### 1. Variables d'Environnement
 
-### 2. **Ouvrez l'éditeur SQL**
-- Dans le menu de gauche, cliquez sur "SQL Editor"
-- Cliquez sur "New query"
+Créez un fichier `.env` à la racine du projet avec :
 
-### 3. **Exécutez le script de création**
-- Copiez tout le contenu du fichier `setup-database.sql`
-- Collez-le dans l'éditeur SQL
-- Cliquez sur "Run" pour exécuter le script
+```env
+VITE_SUPABASE_URL=votre_url_supabase
+VITE_SUPABASE_ANON_KEY=votre_cle_anonyme_supabase
+```
 
-### 4. **Vérifiez la création des tables**
-- Allez dans "Table Editor" dans le menu de gauche
-- Vous devriez voir les tables suivantes :
-  - ✅ `users` (utilisateurs)
-  - ✅ `products` (produits)
-  - ✅ `orders` (commandes)
-  - ✅ `messages` (messages)
+**⚠️ IMPORTANT** : Remplacez `votre_url_supabase` et `votre_cle_anonyme_supabase` par vos vraies clés Supabase.
 
-### 5. **Configurez vos clés dans le fichier .env**
-- Dans "Settings" > "API", copiez :
-  - **URL** : Votre URL de projet
-  - **anon key** : Votre clé publique anonyme
-- Remplacez les valeurs dans le fichier `.env`
+### 2. Où trouver vos clés Supabase
 
-## 🔐 Sécurité configurée :
+1. Allez sur [https://supabase.com/dashboard](https://supabase.com/dashboard)
+2. Sélectionnez votre projet
+3. Allez dans **Settings > API**
+4. Copiez :
+   - **Project URL** → `VITE_SUPABASE_URL`
+   - **anon public** → `VITE_SUPABASE_ANON_KEY`
 
-- ✅ **Row Level Security (RLS)** activée sur toutes les tables
-- ✅ **Politiques de sécurité** pour chaque rôle (client, vendeur, admin)
-- ✅ **Authentification** obligatoire pour accéder aux données
-- ✅ **Triggers** pour la mise à jour automatique des timestamps
+### 3. Base de Données
 
-## 📊 Fonctionnalités incluses :
+Exécutez le script SQL fourni dans le README principal dans l'éditeur SQL de Supabase.
 
-- ✅ **Gestion des utilisateurs** avec rôles
-- ✅ **Système de produits** avec validation
-- ✅ **Commandes** et suivi
-- ✅ **Messagerie** entre utilisateurs
-- ✅ **Compteur de vues** pour les produits
-- ✅ **Création automatique** du profil utilisateur
+### 4. Redémarrage
 
-## 🎯 Après l'exécution :
+Après avoir créé le fichier `.env`, redémarrez le serveur de développement :
 
-Votre site sera entièrement fonctionnel avec :
-- Inscription/Connexion des utilisateurs
-- Publication et gestion des produits
-- Interface d'administration
-- Système de commandes
-- Messagerie intégrée
+```bash
+npm run dev
+```
 
----
+## 🔧 Vérification
 
-**Note** : Le script est sécurisé et utilise `IF NOT EXISTS` pour éviter les erreurs si certaines tables existent déjà.
+Si la configuration est correcte, vous devriez voir dans la console :
+
+```
+✅ Client Supabase initialisé avec succès
+```
+
+Si vous voyez des avertissements, vérifiez vos clés dans le fichier `.env`.
+
+## 🆘 Problèmes Courants
+
+### "Configuration Supabase requise"
+
+- Vérifiez que le fichier `.env` existe
+- Vérifiez que les clés ne sont pas vides
+- Redémarrez le serveur
+
+### Erreurs de base de données
+
+- Vérifiez que les tables sont créées
+- Vérifiez les politiques RLS
+- Vérifiez les permissions
+
+### Erreurs d'authentification
+
+- Vérifiez que l'authentification est activée dans Supabase
+- Vérifiez les paramètres d'authentification
